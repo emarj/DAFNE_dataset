@@ -1,73 +1,78 @@
+import bisect
 from pathlib import Path
 from typing import Union
 
 from PIL import Image
 
 from datman import DataManager
+from datman.remote import Remote
 
+from .metadata import retrieve_frescos
+        
 
-class DAFNEFrescoDataset: 
+class DAFNEDataset:
+
+    root : Path
+    frescos : list
+    include_spurious : bool
+    supervised_mode : bool
+    managed_mode : bool
 
     def __init__(self,
-                 root,
-                 fresco,
-                 managed_mode=True,
-                 supervised_mode=False,
-                 from_scratch=False,
-                 skip_verify=False) -> None:
+                 root : Union[str, Path],
+                 frescos : list = [],
+                 supervised_mode : bool=False,
+                 include_spurious : bool = True,
+                 managed_mode: bool = True,
+                 from_scratch : bool = False,
+                 skip_verify : bool = False) -> None:
         
         
         self.root = Path(root)
-        
+        self.managed_mode = managed_mode
         self.supervised_mode = supervised_mode
-
+        self.include_spurious = include_spurious
+        
         # iterator state
         self._iter_idx = 0
 
-        self.fresco = fresco
+        self.frescos = frescos
+
+        all_frescos = retrieve_frescos()
         
-        if managed_mode:
+        if len(self.frescos) == 0:
+            # scrape fresco list from website
+            self.frescos = list(all_frescos.keys())
+        else:
+            # check provided fresco list is valid
+            for fresco in self.frescos:
+                if fresco not in all_frescos:
+                    raise ValueError(f"Fresco id '{fresco}' not found in available dataset frescos")
 
-            # get remote info
-            remote = {
-                "url": f"https://zenodo.org/records/15800029/files/{fresco}.zip?download=1",
-                "checksum": "PLACEHOLDER_FOR_FRESCO_SHA256",
-                "filename": f"{fresco}.zip",
-                "folder_name": fresco,
-            }
-            
-            self.datamanager = DataManager(
-                root=self.root,
-                version_type_str=self.fresco,
-                remote=remote,
-                download_folder = self.root / 'downloads',
-                extract_subpath = 'frescos',
-                from_scratch=from_scratch,
-                skip_verify=skip_verify,
-            )
+        self.puzzle_list = []
+        for fresco in self.frescos:
+            if self.managed_mode:
+                dm = DataManager(
+                    root=self.root,
+                    dataset_id=fresco,
+                    remote=Remote(
+                        url=all_frescos[fresco],
+                        filename=fresco + ".zip",
+                        root_folder=fresco
+                    ),
+                    download_folder=self.root / "downloads",
+                    extract_subpath='frescos',
+                    from_scratch=from_scratch,
+                    skip_verify=skip_verify,
+                )
+            pl = self.load_puzzle(self.root / fresco if not self.managed_mode else dm.data_path)
 
-        ################### Load dataset ###################
+            self.puzzle_list.append(pl)
 
-        self.data_path = self.datamanager.data_path if managed_mode else self.root
-        
-        err_msg = "Check the specified root folder is correct. If the error persist, try to recreate the dataset running with from_scratch=True or by deleting the root folder."
-        if not self.data_path.exists():
-            if managed_mode:
-                raise RuntimeError(f"Cannot find data folder. {err_msg}")
-            else:
-                raise RuntimeError("Dataset path does not exist. Check the specified root folder is correct.")
-
-        self.puzzle_folders_list = [p for p in self.data_path.iterdir() if p.is_dir()]
-        self.puzzle_folders_list.sort()
-
-        if len(self.puzzle_folders_list) == 0:
-            if managed_mode:
-                raise RuntimeError(f"No data found after extraction. The dataset may be corrupted. {err_msg}")
-            else:
-                raise RuntimeError("No data found in the specified root folder.")
+        self.cumulative_sizes = self.cumsum(self.puzzle_list)
 
     # iterator protocol
-    def __iter__(self) -> 'DAFNEFrescoDataset':
+    def __iter__(self) -> 'DAFNEDataset':
         self._iter_idx = 0
         return self
 
@@ -78,12 +83,51 @@ class DAFNEFrescoDataset:
         self._iter_idx += 1
         return item
     
-    def __len__(self) -> int:
-        return len(self.puzzle_folders_list)
+    @staticmethod
+    def cumsum(sequence) -> list:
+        r, s = [], 0
+        for e in sequence:
+            l = len(e)
+            r.append(l + s)
+            s += l
+        return r
     
-    def _get_metadata(self, key :int) -> dict:
+    @staticmethod
+    def load_puzzle(folder) -> list:
+        data_path = Path(folder)
         
-        puzzle_folder = self.puzzle_folders_list[key]
+        if not data_path.exists():
+                raise RuntimeError("Dataset path does not exist. Check the specified root folder is correct.")
+
+        puzzle_folders_list = [p for p in data_path.iterdir() if p.is_dir()]
+        puzzle_folders_list.sort()
+
+        if len(puzzle_folders_list) == 0:
+                raise RuntimeError("No data found in the specified root folder.")
+        
+        return puzzle_folders_list
+    
+    def __len__(self) -> int:
+        return self.cumulative_sizes[-1]
+    
+    def _get_idx(self, idx : int) -> tuple:
+        if idx < 0:
+            if -idx > len(self):
+                raise ValueError(
+                    "absolute value of index should not exceed dataset length"
+                )
+            idx = len(self) + idx
+        
+        dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
+        if dataset_idx == 0:
+            sample_idx = idx
+        else:
+            sample_idx = idx - self.cumulative_sizes[dataset_idx - 1]
+        return dataset_idx, sample_idx
+
+    def get_metadata(self, idx : int) -> dict:
+        puzzle_idx, sample_idx = self._get_idx(idx)
+        puzzle_folder = self.puzzle_list[puzzle_idx][sample_idx]
         
         solution_file = puzzle_folder / "fragments.txt"
         solved_fragments = parse_solution(solution_file)
@@ -113,7 +157,7 @@ class DAFNEFrescoDataset:
 
     def __getitem__(self, key : int) -> Union[dict, tuple]:
 
-        data = self._get_metadata(key)
+        data = self.get_metadata(key)
 
         if not self.supervised_mode:
             return data

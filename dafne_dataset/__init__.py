@@ -1,3 +1,3 @@
-from .dataset import DAFNEFrescoDataset
+from .dataset import DAFNEDataset
 
-__all__ = ['DAFNEFrescoDataset']
+__all__ = ['DAFNEDataset']

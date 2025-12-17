@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# VS Code
+.vscode/
+
 # Python-generated files
 __pycache__/
 *.py[oc]
