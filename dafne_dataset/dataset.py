@@ -1,13 +1,17 @@
 import bisect
+import fnmatch
 from pathlib import Path
-from typing import Union
+from typing import Tuple, Union
+import re
 
 from PIL import Image
 
+from dafne_dataset.reconstruct import _convert_to_centroid
 from datman import DataManager
 from datman.remote import Remote
 
 from .metadata import retrieve_frescos
+from .utils import centroid_rgba
         
 
 class DAFNEDataset:
@@ -21,8 +25,11 @@ class DAFNEDataset:
     def __init__(self,
                  root : Union[str, Path],
                  frescos : list = [],
+                 *,
+                 strict_matching : bool = False,
                  supervised_mode : bool=False,
-                 include_spurious : bool = True,
+                 include_spurious : bool = False,
+                 convert_to_centroid : bool = True,
                  managed_mode: bool = True,
                  from_scratch : bool = False,
                  skip_verify : bool = False) -> None:
@@ -32,22 +39,31 @@ class DAFNEDataset:
         self.managed_mode = managed_mode
         self.supervised_mode = supervised_mode
         self.include_spurious = include_spurious
+        self.convert_to_centroid = convert_to_centroid
         
         # iterator state
         self._iter_idx = 0
 
-        self.frescos = frescos
-
         all_frescos = retrieve_frescos()
         
-        if len(self.frescos) == 0:
+        if len(frescos) == 0:
             # scrape fresco list from website
             self.frescos = list(all_frescos.keys())
         else:
-            # check provided fresco list is valid
-            for fresco in self.frescos:
-                if fresco not in all_frescos:
-                    raise ValueError(f"Fresco id '{fresco}' not found in available dataset frescos")
+            if strict_matching:
+                for fresco in frescos:
+                    if fresco not in all_frescos:
+                        raise ValueError(f"Fresco id '{fresco}' not found in available dataset frescos")
+                self.frescos = frescos
+            else:
+                self.frescos = []
+                for fresco in frescos:
+                    matches = {f for f in all_frescos.keys() if fnmatch.fnmatch(f, fresco)}
+                    if len(matches) == 0:
+                        raise ValueError(f"No fresco matching pattern '{fresco}' found in available dataset frescos")
+                    self.frescos.extend(matches)
+
+        self.frescos.sort()
 
         self.puzzle_list = []
         for fresco in self.frescos:
@@ -128,6 +144,8 @@ class DAFNEDataset:
     def get_metadata(self, idx : int) -> dict:
         puzzle_idx, sample_idx = self._get_idx(idx)
         puzzle_folder = self.puzzle_list[puzzle_idx][sample_idx]
+
+        solution_size = extract_size(puzzle_folder.name)
         
         solution_file = puzzle_folder / "fragments.txt"
         solved_fragments = parse_solution(solution_file)
@@ -138,22 +156,39 @@ class DAFNEDataset:
 
         fragments = []
 
-        for f in (puzzle_folder / 'frag_eroded').iterdir():
+        for f in sorted((puzzle_folder / 'frag_eroded').iterdir()):
             if f.suffix == '.png':
                 idx = int(f.stem.rsplit('_', 1)[-1])
-                fragments.append({
+
+                is_spurious = idx in spurious_fragments
+
+                if not self.include_spurious and is_spurious:
+                    # skip spurious fragments
+                    continue
+
+                frag = {
                     'idx': idx,
-                    'filepath': str(f),
-                    'is_spurious': idx in spurious_fragments,
+                    'filename': str(f),
+                    'is_spurious': is_spurious,
                     'position_2d': solved_fragments.get(idx, None),
-                })
+                }
+                
+                if self.convert_to_centroid and not is_spurious:
+                    convert_to_centroid(frag, solution_size)
+
+                fragments.append(frag)
+
+        # Sort fragments by idx
         fragments.sort(key=lambda x: x['idx'])
         
         return {
             'puzzle_name': puzzle_folder.name,
             'fragments': fragments,
             'spurious_fragments': spurious_fragments,
+            'solution_size': solution_size,
         }
+    
+
 
     def __getitem__(self, key : int) -> Union[dict, tuple]:
 
@@ -172,7 +207,7 @@ class DAFNEDataset:
 
         fragments = []
         for frag in data['fragments']:
-            image = Image.open(frag['filepath']).convert('RGBA')
+            image = Image.open(frag['filename']).convert('RGBA')
 
             fragments.append({
                 'idx': frag['idx'],
@@ -199,3 +234,29 @@ def parse_solution(solution_path: Union[str, Path]) -> dict:
             
             data[idx] = (x, y, angle)
     return data
+
+def convert_to_centroid(frag, solution_size) -> None:
+    img_path = Path(frag['filename'])
+    img_pil = Image.open(img_path).convert('RGBA')
+
+    d_x, d_y = centroid_rgba(img_pil)
+
+    new_pos = _convert_to_centroid(frag['position_2d'], img_pil, solution_size)
+
+    frag['position_2d'] = new_pos
+
+
+def extract_size(puzzle_name:str) -> Tuple[int, int]:
+    """
+    Extracts width and height from a string like 'Name_1234x5678'.
+    Returns a tuple (width, height) if successful, or raise ValueError.
+    """
+    match = re.search(r'(\d+)x(\d+)', puzzle_name)
+    if match:
+        width = int(match.group(1))
+        height = int(match.group(2))
+        return (width, height)
+    else:
+        raise ValueError(f"Could not extract size from puzzle name: {puzzle_name}")
+
+        

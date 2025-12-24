@@ -35,8 +35,8 @@ def retrieve_frescos(scrape=True) -> dict:
         try:
             frescos = scrape_frescos()
         except requests.RequestException as e:
-            print(f"Warning: Failed to scrape frescos from website: {e}")
-            print("Falling back to local metadata.")
+            print("Wraning: Failed to scrape frescos from website, falling back to local metadata.")
+            print(f"(Caused by: {e})")
     
     return frescos
 
