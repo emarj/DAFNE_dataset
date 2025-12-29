@@ -1,9 +1,14 @@
+import math
 from pathlib import Path
 from typing import Tuple
 from PIL import Image
 from .utils import centroid_rgba, center_and_pad_rgba
 
 def _convert_to_centroid(position, img_pil, solution_size) -> Tuple[int,int,float]:
+    """
+    Instead of computing the position using linear algebra and trigonometry, we paste the rotated image on an empty canvas
+    and compute the centroid of the resulting image.
+    """
     empty_canvas = Image.new("RGBA", solution_size, (0, 0, 0, 0))
     x, y, angle = position
     
@@ -22,7 +27,10 @@ def _convert_to_centroid(position, img_pil, solution_size) -> Tuple[int,int,floa
     return x,y,angle
 
 
-def _reassemble_solution_2d(images, positions, solution_size) -> Image.Image:
+def _reassemble_solution_2d(images, positions, solution_size, centroid_centered) -> Image.Image:
+
+    if not centroid_centered:
+        return _reassemble_solution_original_2d(images, positions, solution_size)
 
     solution_pil = Image.new("RGBA", solution_size, (0, 0, 0, 0))
 
@@ -58,13 +66,15 @@ def _reassemble_solution_original_2d(images, positions, solution_size) -> Image.
     return solution_pil
      
 
-def reassemble_2d(fragments, puzzle_folder=None, solution_size=None) -> Image.Image:
+def reassemble_2d(fragments, puzzle_folder=None, solution_size=None, centroid_centered=True) -> Image.Image:
     if puzzle_folder is not None:
         puzzle_folder = Path(puzzle_folder)
     else:
         puzzle_folder = Path('')
 
+    min_x, min_y = float('inf'), float('inf')
     max_x, max_y = 0, 0
+
     images = []
     positions = []
     for frag in fragments:
@@ -82,12 +92,32 @@ def reassemble_2d(fragments, puzzle_folder=None, solution_size=None) -> Image.Im
             print("Warning: negative position detected in fragment ", frag.get('idx', 'unknown'))
         positions.append((x,y,angle))
         
-        if solution_size is not None:
-            continue
-        max_x = max(max_x, x + img_pil.width)
-        max_y = max(max_y, y + img_pil.height)
+        if solution_size is None:
+            # here we compute a quick estimate of the solution size assuming centroid is at center (which is the case in our dataset)
+            # we use half-diagonal as radius instead of max distance from centroid for simplicity
+            # to be precise we should computer the bounding box of the rotated image around the centroid
+            r = 0.5 * math.hypot(img_pil.width, img_pil.height)
+            max_x = max(max_x, x + r)
+            max_y = max(max_y, y + r)
+            min_x = min(min_x, x - r)
+            min_y = min(min_y, y - r)
 
-    if solution_size is None:
-        solution_size = (max_x, max_y)
+    # if solution_size was provided, we are done
+    if solution_size is not None:
+        return _reassemble_solution_2d(images, positions, solution_size, centroid_centered)
 
-    return _reassemble_solution_2d(images, positions, solution_size)
+    # otherwise, use the computed estimate, we adjust the positions if needed
+    estimated_solution_size = (int(math.ceil(max_x - min_x)), int(math.ceil(max_y - min_y)))
+    if min_x < 0 or min_y < 0:
+        # adjust positions to be non-negative
+        for i in range(len(positions)):
+            x, y, angle = positions[i]
+            positions[i] = (x - min_x, y - min_y, angle)
+
+    sol_img = _reassemble_solution_2d(images, positions, estimated_solution_size, centroid_centered)
+
+    # at the end we crop the solution
+    sol_img = sol_img.crop(sol_img.getchannel("A").getbbox())
+        
+
+    return sol_img

@@ -5,9 +5,12 @@ from dafne_dataset.reconstruct import reassemble_2d
 
 def main():
 
+    center_centroid = False
+
     dataset = DAFNEDataset('.dataset/DAFNE_dataset/', 
                                 managed_mode=True,
                                 frescos=['*Adoration*'],
+                                convert_to_centroid=center_centroid,
                                 include_spurious=True,
                                 from_scratch=False,
                                 supervised_mode=True)
@@ -17,16 +20,16 @@ def main():
     # Select a random index
     
     random_index = random.randint(0, len(dataset) - 1)
-    #random_index = 3
+    #random_index = 0
     
     data = dataset[random_index][1]
     #print(sample)
 
     num_spurious = len(data['spurious_fragments'])
 
-    print(f"Reassembling sample {random_index} with {len(data['fragments']) - num_spurious} fragments" + (f" (+ {num_spurious} spurious)" if num_spurious > 0 else ""))
+    print(f"Reassembling '{data['puzzle_name']}' with {len(data['fragments']) - num_spurious} fragments" + (f" (+ {num_spurious} spurious)" if num_spurious > 0 else ""))
 
-    reassemble_img = reassemble_2d(data['fragments'],solution_size=data['solution_size'])
+    reassemble_img = reassemble_2d(data['fragments'],solution_size=data['solution_size'], centroid_centered=center_centroid)
     reassemble_img.show()
     
 

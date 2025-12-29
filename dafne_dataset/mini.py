@@ -1,22 +1,89 @@
+import math
+from pathlib import Path
+from typing import cast
+import warnings
+
+from tqdm import tqdm
+
+from dafne_dataset.utils import center_and_pad_rgba
 from .dataset import DAFNEDataset, parse_solution
+from .cached_dataset import SimpleCache, NumpyBackend
+from PIL import Image
 import numpy as np
 
 
 class DAFNEMiniDataset:
-    def __init__(self, root, frescos, window_size=200, **kwargs) -> None:
+    def __init__(self, root, frescos, window_size=200, supervised_mode=False, **kwargs) -> None:
         # forward every argument to DAFNEDataset
-        self.dataset = DAFNEDataset(root, frescos, **kwargs)
+        self.dataset = DAFNEDataset(root, frescos, supervised_mode=False, include_spurious=False, **kwargs)
 
+        self.supervised_mode = supervised_mode
         self.window_size = window_size
 
-    def __len__(self):
-        return len(self.dataset)
-    
-    def __getitem__(self, idx):
-        puzzle = self.dataset[idx]
+        self.cache = SimpleCache(Path(root) / '.cache', backend=NumpyBackend(), keep_in_memory=True)
+        if len(self.cache) == 0:
+            self._prepare()
 
-        sol_size = puzzle['solution_size']
+    def _prepare(self) -> None:
 
+        for puzzle in tqdm(self.dataset, desc="Extracting mini puzzles", disable=False):
+            puzzle = cast(dict, puzzle) # make type checker happy since __getitem__ returns a Union, but we know it's a dict here
+            sol_size = puzzle['solution_size']
+
+            windows = self.extract_mini_puzzles(puzzle, sol_size)
+
+            for window in windows:
+                if len(window['fragments_idx']) == 0:
+                    warnings.warn("Skipping empty mini puzzle")
+                    continue
+                
+                min_x, min_y = math.inf, math.inf
+                max_x, max_y = -math.inf, -math.inf
+
+                fragments = [puzzle['fragments'][idx] for idx in window['fragments_idx']]
+
+                for frag in fragments:
+                    x, y, _ = frag['position_2d']
+
+                    img = Image.open(frag['filename']).convert('RGBA')
+                    img = img.crop(img.getchannel("A").getbbox())
+                    r = 0.5 * math.hypot(img.width, img.height)
+                    min_x = min(min_x, x - r)
+                    min_y = min(min_y, y - r)
+                    max_x = max(max_x, x + r)
+                    max_y = max(max_y, y + r)
+
+                # if min_x or min_y are non-negative, we set them to zero
+                min_x = min(0, min_x)
+                min_y = min(0, min_y)
+
+                solution_size = (int(math.ceil(max_x - min_x)), int(math.ceil(max_y - min_y)))
+
+                for frag in fragments:
+                    x,y, angle = frag['position_2d']
+                    x_w, y_w = window['position']
+                    # adjust fragment position relative to window and shift by min_x, min_y
+                    frag['position_2d'] = (
+                        round(x - x_w,2),
+                        round(y - y_w,2),
+                        angle
+                    )
+
+                puzzle_name = f"{puzzle['puzzle_name']}_window_{self.window_size}x{self.window_size}_{window['idx']}"
+
+                mini_puzzle = {
+                'fragments': fragments,
+                'solution_size': solution_size, #(self.window_size, self.window_size),
+                'original_puzzle_name': puzzle['puzzle_name'],
+                'puzzle_name': puzzle_name
+                }
+
+                print(puzzle_name)
+
+                self.cache[puzzle_name] = mini_puzzle
+            
+
+    def extract_mini_puzzles(self, puzzle, sol_size):
         canvas_matrix = np.ones(sol_size, dtype=np.int32) * -1
 
         # build canvas matrix
@@ -27,36 +94,33 @@ class DAFNEMiniDataset:
 
             canvas_matrix[int(round(x)), int(round(y))] = i
 
-        windows = self.non_overlapping_window_ids(
-            canvas_matrix, (self.window_size, self.window_size)
-        )
+        h, w = self.window_size, self.window_size
+        H, W = canvas_matrix.shape
+        window_idx = 0
 
-        mini_puzzles = []
-        for window in windows:
-            if len(window['objects_idx']) == 0:
-                continue
+        windows = []
 
-            fragments = []
-            for frag_idx in window['objects_idx']:
-                frag = puzzle['fragments'][frag_idx]
-                frag['position_2d'] = (
-                    frag['position_2d'][0] - window['bbox'][0],
-                    frag['position_2d'][1] - window['bbox'][1],
-                    frag['position_2d'][2]
-                )
-                fragments.append(frag)
+        for i in range(0, H - h + 1, h):
+            for j in range(0, W - w + 1, w):
+                window = canvas_matrix[i:i+h, j:j+w]
+                idx = np.unique(window[window >= 0])
 
-            mini_puzzle = {
-            'fragments': fragments,
-            'solution_size': (self.window_size, self.window_size),
-            'puzzle_name': f"{puzzle['puzzle_name']}_window_{self.window_size}x{self.window_size}_{window['idx']}"
-            }
+                windows.append({
+                    "idx": window_idx,
+                    "position": (i, j),
+                    "fragments_idx": idx
+                })
 
-            mini_puzzles.append(mini_puzzle)
-
-        return mini_puzzles
-
+                window_idx += 1
         
+        return windows
+
+    def __len__(self):
+        return len(self.cache)
+    
+    def __getitem__(self, idx):
+        return self.cache[idx]
+    
 
     @staticmethod
     def non_overlapping_window_ids(matrix, window_size):
@@ -67,20 +131,15 @@ class DAFNEMiniDataset:
 
         for i in range(0, H - h + 1, h):
             for j in range(0, W - w + 1, w):
-                bbox = (i, j, i + h, j + w)
-                window = matrix[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+                window = matrix[i:i+h, j:j+w]
                 idx = np.unique(window[window >= 0])
 
                 results.append({
                     "idx": window_idx,
-                    "bbox": bbox,
+                    "position": (i, j),
                     "objects_idx": idx
                 })
 
                 window_idx += 1
 
         return results
-        
-
-
-

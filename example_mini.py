@@ -2,6 +2,7 @@ import random
 
 from dafne_dataset import DAFNEMiniDataset
 from dafne_dataset.reconstruct import reassemble_2d
+from dafne_dataset.utils import make_image_grid
 
 def main():
 
@@ -16,16 +17,15 @@ def main():
     # Select a random index
     
     random_index = random.randint(0, len(dataset) - 1)
-    #random_index = 3
-    
+    #random_index = 0
+    print(f"Selected index: {random_index}")
     data = dataset[random_index]
     #print(sample)
 
-    for puzzle in data:
-        print(f"Reassembling mini puzzle: {puzzle['puzzle_name']}")
-        reassemble_img = reassemble_2d(puzzle['fragments'],solution_size=puzzle['solution_size'])
-        reassemble_img.show()
+    print(f"Puzzle: {data['original_puzzle_name']}")
     
+    reassemble_img = reassemble_2d(data['fragments'],solution_size=data['solution_size'])
+    reassemble_img.show()
 
 if __name__ == "__main__":
     main()

@@ -174,7 +174,9 @@ class DAFNEDataset:
                 }
                 
                 if self.convert_to_centroid and not is_spurious:
-                    convert_to_centroid(frag, solution_size)
+                    # since we pass frag by reference, this modifies in place
+                    # we do it for clarity
+                    frag = convert_to_centroid(frag, solution_size)
 
                 fragments.append(frag)
 
@@ -235,15 +237,18 @@ def parse_solution(solution_path: Union[str, Path]) -> dict:
             data[idx] = (x, y, angle)
     return data
 
-def convert_to_centroid(frag, solution_size) -> None:
+def convert_to_centroid(frag, solution_size) -> dict:
     img_path = Path(frag['filename'])
     img_pil = Image.open(img_path).convert('RGBA')
-
-    d_x, d_y = centroid_rgba(img_pil)
 
     new_pos = _convert_to_centroid(frag['position_2d'], img_pil, solution_size)
 
     frag['position_2d'] = new_pos
+
+    # returning the modified fragment is optional since we modify in place
+    # we do it for clarity
+
+    return frag
 
 
 def extract_size(puzzle_name:str) -> Tuple[int, int]:
