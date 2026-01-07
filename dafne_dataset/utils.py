@@ -1,3 +1,4 @@
+from typing import Tuple
 import numpy as np
 from PIL import Image, ImageDraw
 import math
@@ -43,6 +44,29 @@ def center_and_pad_rgba(img: Image.Image) -> Image.Image:
     canvas.paste(cropped, (tx, ty), cropped)
 
     return canvas
+
+def _convert_to_centroid(position, img_pil, solution_size) -> Tuple[int,int,float]:
+    """
+    Instead of computing the position using linear algebra and trigonometry, we paste the rotated image on an empty canvas
+    and compute the centroid of the resulting image.
+    """
+    empty_canvas = Image.new("RGBA", solution_size, (0, 0, 0, 0))
+    x, y, angle = position
+    
+    img_pil = img_pil.rotate(angle)
+    d_x, d_y = img_pil.width / 2, img_pil.height / 2
+    
+    x_ = int(round(x - d_x))
+    y_ = int(round(y - d_y))
+
+    empty_canvas.paste(img_pil, (x_, y_), img_pil)
+
+    c_x_full, c_y_full  = centroid_rgba(empty_canvas)
+
+    x, y = int(round(c_x_full)), int(round(c_y_full))
+
+    return x,y,angle
+
 
 def make_image_grid(
     images,

@@ -5,22 +5,24 @@ import warnings
 
 from tqdm import tqdm
 
-from dafne_dataset.utils import center_and_pad_rgba
-from .dataset import DAFNEDataset, parse_solution
-from .cached_dataset import SimpleCache, NumpyBackend
+from .dataset import DAFNEDataset
+from datman.cache import SimpleCache, NumpyBackend
 from PIL import Image
 import numpy as np
 
 
 class DAFNEMiniDataset:
-    def __init__(self, root, frescos, window_size=200, supervised_mode=False, **kwargs) -> None:
+    def __init__(self, root, frescos, window_size=200, supervised_mode=False, backend=NumpyBackend(), **kwargs) -> None:
         # forward every argument to DAFNEDataset
         self.dataset = DAFNEDataset(root, frescos, supervised_mode=False, include_spurious=False, **kwargs)
+
+        if supervised_mode:
+            raise NotImplementedError("Supervised mode is not implemented for DAFNEMiniDataset")
 
         self.supervised_mode = supervised_mode
         self.window_size = window_size
 
-        self.cache = SimpleCache(Path(root) / '.cache', backend=NumpyBackend(), keep_in_memory=True)
+        self.cache = SimpleCache(Path(root) / '.mini_cache', backend=backend, keep_in_memory=True)
         if len(self.cache) == 0:
             self._prepare()
 
@@ -73,12 +75,10 @@ class DAFNEMiniDataset:
 
                 mini_puzzle = {
                 'fragments': fragments,
-                'solution_size': solution_size, #(self.window_size, self.window_size),
+                'solution_size': solution_size,
                 'original_puzzle_name': puzzle['puzzle_name'],
                 'puzzle_name': puzzle_name
                 }
-
-                print(puzzle_name)
 
                 self.cache[puzzle_name] = mini_puzzle
             
@@ -121,25 +121,3 @@ class DAFNEMiniDataset:
     def __getitem__(self, idx):
         return self.cache[idx]
     
-
-    @staticmethod
-    def non_overlapping_window_ids(matrix, window_size):
-        h, w = window_size
-        H, W = matrix.shape
-        results = []
-        window_idx = 0
-
-        for i in range(0, H - h + 1, h):
-            for j in range(0, W - w + 1, w):
-                window = matrix[i:i+h, j:j+w]
-                idx = np.unique(window[window >= 0])
-
-                results.append({
-                    "idx": window_idx,
-                    "position": (i, j),
-                    "objects_idx": idx
-                })
-
-                window_idx += 1
-
-        return results

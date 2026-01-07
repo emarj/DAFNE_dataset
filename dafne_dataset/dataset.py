@@ -6,12 +6,11 @@ import re
 
 from PIL import Image
 
-from dafne_dataset.reconstruct import _convert_to_centroid
 from datman import DataManager
 from datman.remote import Remote
 
 from .metadata import retrieve_frescos
-from .utils import centroid_rgba
+from .utils import _convert_to_centroid
         
 
 class DAFNEDataset:

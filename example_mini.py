@@ -2,7 +2,6 @@ import random
 
 from dafne_dataset import DAFNEMiniDataset
 from dafne_dataset.reconstruct import reassemble_2d
-from dafne_dataset.utils import make_image_grid
 
 def main():
 

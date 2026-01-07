@@ -12,12 +12,12 @@ dependencies = [
     "tqdm>=4.66.5",
 ]
 
-[tool.uv.sources]
-datman = { path = "../DatasetManager", editable = true }
-
 [dependency-groups]
 dev = [
     "beautifulsoup4==4.12.2",
 ]
+
+[tool.uv.sources]
+datman = { git = "https://github.com/emarj/datman.git", tag = "v0.1.1" }
 
 

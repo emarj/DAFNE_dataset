@@ -1,30 +1,7 @@
 import math
 from pathlib import Path
-from typing import Tuple
 from PIL import Image
-from .utils import centroid_rgba, center_and_pad_rgba
-
-def _convert_to_centroid(position, img_pil, solution_size) -> Tuple[int,int,float]:
-    """
-    Instead of computing the position using linear algebra and trigonometry, we paste the rotated image on an empty canvas
-    and compute the centroid of the resulting image.
-    """
-    empty_canvas = Image.new("RGBA", solution_size, (0, 0, 0, 0))
-    x, y, angle = position
-    
-    img_pil = img_pil.rotate(angle)
-    d_x, d_y = img_pil.width / 2, img_pil.height / 2
-    
-    x_ = int(round(x - d_x))
-    y_ = int(round(y - d_y))
-
-    empty_canvas.paste(img_pil, (x_, y_), img_pil)
-
-    c_x_full, c_y_full  = centroid_rgba(empty_canvas)
-
-    x, y = int(round(c_x_full)), int(round(c_y_full))
-
-    return x,y,angle
+from .utils import center_and_pad_rgba
 
 
 def _reassemble_solution_2d(images, positions, solution_size, centroid_centered) -> Image.Image:
