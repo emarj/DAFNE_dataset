@@ -1,7 +1,6 @@
-import math
 from pathlib import Path
 from PIL import Image
-from .utils import center_and_pad_rgba
+from .utils import center_and_pad_rgba, SolutionSizeComputer2D
 
 
 def _reassemble_solution_2d(images, positions, solution_size, centroid_centered) -> Image.Image:
@@ -49,8 +48,8 @@ def reassemble_2d(fragments, puzzle_folder=None, solution_size=None, centroid_ce
     else:
         puzzle_folder = Path('')
 
-    min_x, min_y = float('inf'), float('inf')
-    max_x, max_y = 0, 0
+    if solution_size is None:
+        ssc = SolutionSizeComputer2D(mode='diagonal')
 
     images = []
     positions = []
@@ -65,31 +64,24 @@ def reassemble_2d(fragments, puzzle_folder=None, solution_size=None, centroid_ce
         images.append(img_pil)
         
         x,y, angle = frag['position_2d']
-        if x < 0 or y < 0:
+        if x < 0 or y < 0 and solution_size is not None:
             print("Warning: negative position detected in fragment ", frag.get('idx', 'unknown'))
         positions.append((x,y,angle))
         
         if solution_size is None:
-            # here we compute a quick estimate of the solution size assuming centroid is at center (which is the case in our dataset)
-            # we use half-diagonal as radius instead of max distance from centroid for simplicity
-            # to be precise we should computer the bounding box of the rotated image around the centroid
-            r = 0.5 * math.hypot(img_pil.width, img_pil.height)
-            max_x = max(max_x, x + r)
-            max_y = max(max_y, y + r)
-            min_x = min(min_x, x - r)
-            min_y = min(min_y, y - r)
+            ssc.update((x,y,angle), img_pil)
 
     # if solution_size was provided, we are done
     if solution_size is not None:
         return _reassemble_solution_2d(images, positions, solution_size, centroid_centered)
 
     # otherwise, use the computed estimate, we adjust the positions if needed
-    estimated_solution_size = (int(math.ceil(max_x - min_x)), int(math.ceil(max_y - min_y)))
-    if min_x < 0 or min_y < 0:
+    estimated_solution_size = ssc.get_size()
+    if ssc.min_x < 0 or ssc.min_y < 0:
         # adjust positions to be non-negative
         for i in range(len(positions)):
             x, y, angle = positions[i]
-            positions[i] = (x - min_x, y - min_y, angle)
+            positions[i] = (x - ssc.min_x, y - ssc.min_y, angle)
 
     sol_img = _reassemble_solution_2d(images, positions, estimated_solution_size, centroid_centered)
 

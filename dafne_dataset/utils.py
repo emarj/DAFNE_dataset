@@ -3,6 +3,52 @@ import numpy as np
 from PIL import Image, ImageDraw
 import math
 
+class SolutionSizeComputer2D:
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+    def __init__(self, mode='diag') -> None:
+        self.min_x = math.inf
+        self.min_y = math.inf
+        self.max_x = -math.inf
+        self.max_y = -math.inf
+
+        self.mode = mode  # 'exact' or 'diagonal'
+
+
+
+    def update(self, position: Tuple[int, int, float], img_pil: Image.Image) -> None:
+        x, y, angle = position
+
+        if self.mode == 'diagonal':
+            # here we compute a quick estimate of the solution size assuming centroid is at center (which is the case in our dataset)
+            # we use half-diagonal as radius instead of max distance from centroid for simplicity
+            # to be precise we should computer the bounding box of the rotated image around the centroid
+            r = 0.5 * math.hypot(img_pil.width, img_pil.height)
+            d_x = r
+            d_y = r
+        else:
+            img_rotated = img_pil.rotate(angle)
+            d_x, d_y = img_rotated.width / 2, img_rotated.height / 2
+
+        x_min = x - d_x
+        y_min = y - d_y
+        x_max = x + d_x
+        y_max = y + d_y
+
+        self.min_x = min(self.min_x, x_min)
+        self.min_y = min(self.min_y, y_min)
+        self.max_x = max(self.max_x, x_max)
+        self.max_y = max(self.max_y, y_max)
+
+    def get_size(self) -> Tuple[int, int]:
+        width = int(math.ceil(self.max_x - self.min_x))
+        height = int(math.ceil(self.max_y - self.min_y))
+        return (width, height)
+
+
 def centroid_rgba(img):
     a = np.array(img)[:, :, 3]        # alpha channel
     ys, xs = np.where(a > 0)          # foreground pixels

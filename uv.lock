@@ -184,7 +184,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datman", git = "https://github.com/emarj/datman.git?tag=v0.1.1" },
+    { name = "datman", git = "https://github.com/emarj/datman.git?tag=v0.1.2" },
     { name = "numpy", specifier = ">=1.21.5" },
     { name = "pillow", specifier = ">=10.4.0" },
     { name = "requests", specifier = ">=2.32.4" },
@@ -197,7 +197,7 @@ dev = [{ name = "beautifulsoup4", specifier = "==4.12.2" }]
 [[package]]
 name = "datman"
 version = "0.1.0"
-source = { git = "https://github.com/emarj/datman.git?tag=v0.1.1#ce236387dd63019b4fcef4d818c1bd7ad73bced5" }
+source = { git = "https://github.com/emarj/datman.git?tag=v0.1.2#2dd4fed77f6e7771f7bdd82a2f8b6ff1e4879966" }
 dependencies = [
     { name = "requests", version = "2.32.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "requests", version = "2.32.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
