@@ -1,28 +1,32 @@
+from enum import Enum
 from typing import Tuple
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 import math
 
-class SolutionSizeComputer2D:
+class EstimationMethod(Enum):
+    DIAGONAL = 'diagonal'
+
+class SolutionSizeEstimator2D:
     min_x: float
     min_y: float
     max_x: float
     max_y: float
 
-    def __init__(self, mode='diag') -> None:
+    def __init__(self, mode=EstimationMethod.DIAGONAL) -> None:
         self.min_x = math.inf
         self.min_y = math.inf
         self.max_x = -math.inf
         self.max_y = -math.inf
 
-        self.mode = mode  # 'exact' or 'diagonal'
+        self.mode = mode
 
 
 
     def update(self, position: Tuple[int, int, float], img_pil: Image.Image) -> None:
         x, y, angle = position
 
-        if self.mode == 'diagonal':
+        if self.mode == EstimationMethod.DIAGONAL:
             # here we compute a quick estimate of the solution size assuming centroid is at center (which is the case in our dataset)
             # we use half-diagonal as radius instead of max distance from centroid for simplicity
             # to be precise we should computer the bounding box of the rotated image around the centroid
@@ -30,8 +34,7 @@ class SolutionSizeComputer2D:
             d_x = r
             d_y = r
         else:
-            img_rotated = img_pil.rotate(angle)
-            d_x, d_y = img_rotated.width / 2, img_rotated.height / 2
+            raise ValueError(f"Unknown estimation mode: {self.mode}")
 
         x_min = x - d_x
         y_min = y - d_y
@@ -49,6 +52,21 @@ class SolutionSizeComputer2D:
         return (width, height)
 
 
+def crop_to_content(sol_img, padding) -> Image.Image:
+    bbox = sol_img.getchannel("A").getbbox()
+    if bbox is None:
+        raise ValueError("Reassembled solution is empty")
+    
+    left, upper, right, lower = bbox
+
+    # Add padding but make sure we don't go out of bounds
+    left = max(left - padding, 0)
+    upper = max(upper - padding, 0)
+    right = min(right + padding, sol_img.width)
+    lower = min(lower + padding, sol_img.height)
+
+    return sol_img.crop((left, upper, right, lower))
+
 def centroid_rgba(img):
     a = np.array(img)[:, :, 3]        # alpha channel
     ys, xs = np.where(a > 0)          # foreground pixels
@@ -56,6 +74,10 @@ def centroid_rgba(img):
 
 
 def center_and_pad_rgba(img: Image.Image) -> Image.Image:
+    """
+    Centers the RGBA image around its centroid and pads it to a square canvas in such a way that rotations
+    around the center do not cause clipping.
+    """
     # --- 1. Tight bbox using PIL ---
     alpha = img.split()[-1]
     bbox = alpha.getbbox()
@@ -112,74 +134,3 @@ def _convert_to_centroid(position, img_pil, solution_size) -> Tuple[int,int,floa
     x, y = int(round(c_x_full)), int(round(c_y_full))
 
     return x,y,angle
-
-
-def make_image_grid(
-    images,
-    cols=None,
-    padding=0,
-    bg_color=(0, 0, 0, 0),
-    order="row",  # "row" or "col"
-    grid_thickness=1
-) -> Image.Image:
-    """
-    Create a grid image from a list of same-sized PIL Images.
-
-    Args:
-        images (list[PIL.Image.Image]): Images to place in the grid.
-        cols (int, optional): Number of columns.
-        padding (int): Internal padding in pixels.
-        bg_color (tuple): Background color (RGBA).
-        order (str): "row" for row-first, "col" for column-first.
-        grid_thickness (int): If >0, draw black grid lines of this thickness on top.
-
-    Returns:
-        PIL.Image.Image
-    """
-    if not images:
-        raise ValueError("Image list is empty")
-
-    if order not in {"row", "col"}:
-        raise ValueError("order must be 'row' or 'col'")
-
-    img_w = max(img.size[0] for img in images)
-    img_h = max(img.size[1] for img in images)
-
-    if cols is None:
-        cols = math.ceil(math.sqrt(len(images)))
-    rows = math.ceil(len(images) / cols)
-
-    grid_w = cols * img_w + (cols - 1) * padding
-    grid_h = rows * img_h + (rows - 1) * padding
-
-    grid = Image.new("RGBA", (grid_w, grid_h), bg_color)
-
-    for i, img in enumerate(images):
-        if order == "row":
-            row = i // cols
-            col = i % cols
-        else:  # column-first
-            col = i // rows
-            row = i % rows
-
-        x = col * (img_w + padding)
-        y = row * (img_h + padding)
-
-        grid.paste(img, (x, y))
-
-    if grid_thickness and grid_thickness > 0:
-
-        draw = ImageDraw.Draw(grid)
-        half_pad = padding / 2.0
-
-        # vertical separators between columns
-        for k in range(1, cols):
-            x = int(round((k - 1) * (img_w + padding) + img_w + half_pad))
-            draw.line([(x, 0), (x, grid_h)], fill=(0, 0, 0, 255), width=grid_thickness)
-
-        # horizontal separators between rows
-        for r in range(1, rows):
-            y = int(round((r - 1) * (img_h + padding) + img_h + half_pad))
-            draw.line([(0, y), (grid_w, y)], fill=(0, 0, 0, 255), width=grid_thickness)
-
-    return grid

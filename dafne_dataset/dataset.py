@@ -240,7 +240,9 @@ def convert_to_centroid(frag, solution_size) -> dict:
     img_path = Path(frag['filename'])
     img_pil = Image.open(img_path).convert('RGBA')
 
-    new_pos = _convert_to_centroid(frag['position_2d'], img_pil, solution_size)
+    pos = frag['position_2d']
+
+    new_pos = _convert_to_centroid(pos, img_pil, solution_size)
 
     frag['position_2d'] = new_pos
 

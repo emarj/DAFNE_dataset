@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-import math
 from pathlib import Path
 from typing import Union,Tuple, cast
 import warnings
@@ -7,7 +6,6 @@ import warnings
 from tqdm import tqdm
 
 from .dataset import DAFNEDataset
-from .utils import SolutionSizeComputer2D
 from datman.cache import SimpleCache, NumpyBackend
 from PIL import Image
 import numpy as np
